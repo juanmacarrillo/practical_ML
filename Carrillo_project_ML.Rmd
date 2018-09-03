@@ -1,0 +1,129 @@
+---
+title: "Practical Machine Learning. Coursera"
+author: "Juan M. Carrillo"
+date: "September 3, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+Data from personal activity has been collected and the way the activity is done (well or not) is recorded. The objective of the analysis is to predict the class of the activity from its meassurements.
+
+
+## Load libraries
+
+``` {r, results = "hide"}
+library (data.table)
+library (caret)
+```
+
+
+## Load data
+
+I will load data from the given URL and save into files for future uses.
+
+```{r, cache = TRUE, results = "hide"}
+if (!file.exists("training.csv")) {
+    training <- fread ("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+    fwrite (training, "training.csv")
+} else {
+    training <- fread ("training.csv")
+}
+
+if (!file.exists("testing.csv")) {
+    testing <- fread ("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+    fwrite (testing, "testing.csv")
+} else {
+    testing <- fread ("testing.csv")
+}
+```
+
+
+## Split data set
+
+Even if there are already two sets of data (training and test), I will spli the training data set into two sets: training and validation. The latest will be used to measure the performance of the model and fine tunning it if necessary.
+
+``` {r}
+set.seed (4833)
+InTrain <- createDataPartition (y = training$classe, p = 0.7, list = F)
+
+validation <- training [-InTrain]
+training <- training [InTrain]
+```
+
+
+## Optimize data sets
+
+There are some variables with little to no variance, so they add no information to the analysis while adding complexity to it.
+
+``` {r, cache = TRUE}
+nzCol <- nearZeroVar(training)
+training <- training [, -nzCol, with = F]
+
+training <- training [, colSums (is.na (training)) == 0, with = F]
+training <- training [, -(1:6)]
+```
+
+
+## Training the model
+
+The response variable to predict (`classe`) is added to create a model using two different algorithms that will be assessed on the validation test afterward.
+
+I have choosen the linear discriminat analysis (`lda`) and recursive partitioning trees (`rpart`), both of them suited for the classification task.
+
+A 4-fold cross-validation methodology will be followed and a random fold-selection.
+
+``` {r, cache = TRUE, results = "hide"}
+trainC <- trainControl (method = "cv", number = 5)
+
+modelFitRf <- train (classe ~ ., data = training,
+                     method = "rf")
+
+modelFitRpart <- train (classe ~ ., data = training,
+                      method = "rpart",
+                      trControl = trainC)
+
+modelFitKknn <- train (classe ~ ., data = training,
+                      method = "knn",
+                      trControl = trainC)
+```
+
+
+## Validation of the models
+
+After the training, both fitted models are tested on the validation data set. The model with the lowest RMSE will be used to predict the test data set and obtain the out-of-sample error.
+
+``` {r}
+confusionMatrix (factor (validation$classe), predict (modelFitRf, validation))
+confusionMatrix (factor (validation$classe), predict (modelFitRpart, validation))
+confusionMatrix (factor (validation$classe), predict (modelFitKknn, validation))
+```
+
+With an accuracy of `r (confusionMatrix (factor (validation$classe), predict (modelFitRf, validation)))$overall[[1]]`, the random fores algorithm seem a better way to predict the response on the test data set.
+
+
+## Predictors importance
+
+From the fitted model we can see that the number of predictors used does not increase neccesarily the accuracy of the model.
+
+```{r, fig.height = 8}
+plot (modelFitRf)
+```
+
+
+## Out-of-sample error
+
+The model fitted on the training is expected to be more accurated when tested on the training data itself (in-sample error) than the error applied to the validation (or testing) data set (out-of-sample error).
+
+The out-of-sample error can be calculated as `1 - Accuracy`. From the rpart confusion matrix the OOS error is `r 1 - (confusionMatrix (factor (validation$classe), predict (modelFitRf, validation)))[[1]]`
+
+
+## Prediction
+``` {r, cache = TRUE}
+predict (modelFitKknn, testing)
+```
+
